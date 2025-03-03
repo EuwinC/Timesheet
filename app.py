@@ -17,11 +17,14 @@ logging.basicConfig(level=logging.DEBUG)
 
 users = {}
 
+#Folder and file paths
 DATABASE_FOLDER = 'database'
 TIMESHEET_FOLDER = 'database/timesheet_data'
 EMPLOYEE_FILE = 'database/user_data/employee.json'
 CUSTOMER_FILE = 'database/customer_data/customer_type.json'
 
+
+# Ensure the database folder exists and load users from JSON file
 def ensure_database_folder():
     if not os.path.exists(DATABASE_FOLDER):
         os.makedirs(DATABASE_FOLDER)
@@ -37,73 +40,7 @@ def load_users():
             users = json.load(file)
     except FileNotFoundError:
         users = {}
-
-# Middleware to check authentication
-def require_login(f):
-    def decorated_function(*args, **kwargs):
-        if 'user_id' not in session:
-            return jsonify({"error": "Please log in first.", "status": "unauthorized"}), 401
-        return f(*args, **kwargs)
-    decorated_function.__name__ = f.__name__
-    return decorated_function
-
-@app.route('/', methods=['GET'])
-def home():
-    return jsonify({"message": "Welcome to the Flask API!", "status": "success"})
-
-# API Routes
-@app.route('/api/login', methods=['POST'])
-def login():
-    data = request.get_json()
-    user_id = data.get('user_id')
-    password = data.get('password')
-    load_users()
-    if user_id not in users or not check_password_hash(users[user_id]['password'], password):
-        return jsonify({"error": "Invalid user ID or password.", "status": "failure"}), 401
-    session['user_id'] = user_id
-    return jsonify({"message": "Login successful.", "status": "success", "user_id": user_id}), 200
-
-@app.route('/api/register', methods=['POST'])
-def register():
-    data = request.get_json()
-    name = data.get('name')
-    user_id = data.get('user_id')
-    password = data.get('password')
-    load_users()
-    if user_id in users:
-        return jsonify({"error": "User ID already exists.", "status": "failure"}), 400
-    hashed_password = generate_password_hash(password)
-    users[user_id] = {'name': name, 'password': hashed_password}
-    save_users()
-    return jsonify({"message": "Registration successful. Please log in.", "status": "success"}), 201
-
-@app.route('/api/dashboard', methods=['GET', 'POST'])
-@require_login
-def dashboard():
-    json_files = [f for f in os.listdir(DATABASE_FOLDER) if f.endswith('.json') and f != 'users.json']
-    selected_file = None
-    timesheet = []
-    selected_year = request.args.get('year', datetime.now().year, type=int)
-    selected_month = request.args.get('month', datetime.now().month, type=int)
-
-    if request.method == 'POST':
-        data = request.get_json()
-        selected_file = data.get('json_file')
-        selected_year = data.get('year', selected_year)
-        selected_month = data.get('month', selected_month)
-        if selected_file:
-            with open(os.path.join(DATABASE_FOLDER, selected_file), 'r') as file:
-                timesheet = json.load(file)
-    
-    filtered_timesheet = [t for t in timesheet if t.get('Year') == selected_year and t.get('Month') == selected_month]
-    return jsonify({
-        "json_files": json_files,
-        "timesheet": filtered_timesheet,
-        "selected_file": selected_file,
-        "selected_year": selected_year,
-        "selected_month": selected_month
-    })
-
+        
 def load_employees():
     with open(EMPLOYEE_FILE, 'r') as file:
         return json.load(file)
@@ -120,67 +57,23 @@ def save_customers(customers):
     with open(CUSTOMER_FILE, 'w') as file:
         json.dump(customers, file, indent=4)
 
-@app.route('/api/preview', methods=['POST'])
-@require_login
-def preview():
-    file = request.files.get('file')
-    if file:
-        df = pd.read_excel(file)
-        df.fillna('', inplace=True)
-        return jsonify({"data": df.to_dict(orient='records')})
-    return jsonify({"message": "No file provided."}), 400
+# Middleware to check authentication
+def require_login(f):
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            return jsonify({"error": "Please log in first.", "status": "unauthorized"}), 401
+        return f(*args, **kwargs)
+    decorated_function.__name__ = f.__name__
+    return decorated_function
 
-@app.route('/api/settings', methods=['GET'])
-@require_login
-def settings():
-    employees = load_employees()
-    customer_types = load_customers()
-    return jsonify({
-        "current_customer": "Current Customer Name",
-        "people_list": employees,
-        "customer_types": customer_types
-    })
 
-@app.route('/api/add_person', methods=['POST'])
-@require_login
-def add_person():
-    data = request.get_json()
-    name = data.get('new_person_name')
-    staff_number = data.get('new_person_staff_number')
-    employees = load_employees()
-    
-    if any(e['Name'] == name and e['Staff Number'] == staff_number for e in employees):
-        return jsonify({"error": "Person already exists!", "status": "failure"}), 400
-    
-    employees.append({"Name": name, "Staff Number": staff_number})
-    save_employees(employees)
-    return jsonify({"message": "Person added successfully!", "status": "success"}), 200
 
-@app.route('/api/remove_person', methods=['POST'])
-@require_login
-def remove_person():
-    data = request.get_json()
-    name = data.get('remove_person')
-    employees = load_employees()
-    employees = [e for e in employees if e['Name'] != name]
-    save_employees(employees)
-    return jsonify({"message": "Person removed successfully!", "status": "success"}), 200
 
-@app.route('/api/add_customer', methods=['POST'])
-@require_login
-def add_customer():
-    data = request.get_json()
-    customer_name = data.get('new_customer_name')
-    customer_type = data.get('new_customer_type')
-    customers = load_customers()
-    
-    if customer_name in customers:
-        return jsonify({"error": "Customer already exists!", "status": "failure"}), 400
-    
-    customers[customer_name] = customer_type
-    save_customers(customers)
-    return jsonify({"message": "Customer added successfully!", "status": "success"}), 200
+@app.route('/', methods=['GET'])
+def home():
+    return jsonify({"message": "Welcome to the Flask API!", "status": "success"})
 
+# API Routes
 @app.route('/api/upload', methods=['POST'])
 def upload():
     file = request.files.get('file')
@@ -249,38 +142,41 @@ def upload():
     except Exception as e:
         logging.error(f'Error processing file: {e}')
         return jsonify({"error": f"An error occurred while processing the file: {str(e)}", "status": "failure"}), 500
+
+
 @app.route('/api/statistics', methods=['GET', 'POST'])
-def statistics():  # Removed @require_login
-    years = [2024, 2025,2026,2027,2028,2029,2030,2031,2032,2033,2034,2035,2036,2037,2038,2039,2040,2041,2042,2043,2044,2045,2046,2047]
+def statistics():
+    #Set up statistics variables
+    customer_pairs = load_customers()
+    timesheet_dir = TIMESHEET_FOLDER
+    timesheet_files = [f for f in os.listdir(timesheet_dir) if f.endswith('.json')]
+    onsite_count, office_count, ps_count, ma_count, internal_count, presales_count = 0, 0, 0, 0, 0, 0
+    timesheet_submitted = set()
+    customer_types = ['THU', 'FSI', 'EDU/NGO', 'GOV', 'Others']
+    customer_data = {c: {'PS': 0.0, 'Pre-Sales': 0.0, 'MA': 0.0} for c in customer_types}
+    customer_data['TBC'] = {'MA': 0.0}
+    off = {'AL':0,'CL':0,'SL':0,'Public Holiday':0}
+    monthly_projects = {}
+    total_working_days = 0
+    
+    #Get the years and months to calculate statistics
+    years = [i for i in range(2023, datetime.now().year + 1)]
     months = list(range(1, 13))
     selected_year = request.args.get('year', datetime.now().year, type=int)
     selected_month = request.args.get('month', datetime.now().month, type=int)
     selected_job_type = request.args.get('job_type', 'PS')
     selected_file = request.args.get('timesheet_file', 'SSS_Team')  # Default to SSS_Team
 
+    # Process each timesheet file
     if request.method == 'POST':
         data = request.get_json() or request.form
         selected_year = int(data.get('year', selected_year))
         selected_month = int(data.get('month', selected_month))
         selected_job_type = data.get('job_type', 'PS')
         selected_file = data.get('timesheet_file', 'SSS_Team')
-
-    employees = load_employees()
-    total_employees = len(employees)
-    customer_pairs = load_customers()
-    timesheet_dir = TIMESHEET_FOLDER
-    timesheet_files = [f for f in os.listdir(timesheet_dir) if f.endswith('.json')]
-
-    onsite_count, office_count, ps_count, ma_count, internal_count, presales_count = 0, 0, 0, 0, 0, 0
-    timesheet_submitted = set()
-    customer_types = ['THU', 'FSI', 'EDU/NGO', 'GOV', 'Others']
-    customer_data = {c: {'PS': 0.0, 'Pre-Sales': 0.0, 'MA': 0.0} for c in customer_types}
-    customer_data['TBC'] = {'MA': 0.0}
-
-    monthly_projects = {}
-    total_working_days = 0
-    off = {'AL':0,'CL':0,'SL':0,'Public Holiday':0}
-    if selected_file == 'SSS_Team':  # Replacing 'overview' with 'SSS_Team'
+        
+    # Overview of SSS team per month's works
+    if selected_file == 'SSS_Team':  
         for tf in timesheet_files:
             with open(os.path.join(timesheet_dir, tf), 'r') as file:
                 timesheet_data = json.load(file)
@@ -288,24 +184,24 @@ def statistics():  # Removed @require_login
                     if entry['Year'] == selected_year and entry['Month'] == selected_month:
                         timesheet_submitted.add(tf)
                         if entry.get('Location') == 'Onsite':
-                            onsite_count += 0.5
+                            onsite_count += 0.5 #1 data = 0.5 day
                         elif entry.get('Location') == 'Office':
-                            office_count += 0.5
+                            office_count += 0.5 #1 data = 0.5 day
                         job_type = entry.get('Job_Type')
                         
                         if job_type == 'PS':
-                            ps_count += 0.5
+                            ps_count += 0.5 #1 data = 0.5 day
                         elif job_type == 'MA':
-                            ma_count += 0.5
+                            ma_count += 0.5 #1 data = 0.5 day
                         elif job_type == 'Internal':
-                            internal_count += 0.5
+                            internal_count += 0.5 #1 data = 0.5 day
                         elif job_type == 'Pre-Sales':
-                            presales_count += 0.5
+                            presales_count += 0.5 #1 data = 0.5 day
                         customer = entry.get('Customer')
                         if customer in customer_pairs:
                             cat = customer_pairs[customer]
                             if job_type in customer_data[cat]:
-                                customer_data[cat][job_type] += 0.5
+                                customer_data[cat][job_type] += 0.5 #1 data = 0.5 day
                         if 'Customer' in entry and 'Work_Detail' in entry and 'SO' in entry:
                             total_working_days += 0.5
                             project_key = (entry['Customer'], entry['Work_Detail'], entry['SO'])
@@ -313,42 +209,42 @@ def statistics():  # Removed @require_login
                                 monthly_projects[project_key] = {
                                     'customer': entry['Customer'], 'name': entry['Work_Detail'], 'so': entry['SO'], 'frequency': 0
                                 }
-                            monthly_projects[project_key]['frequency'] += 0.5
-    else:
+                            monthly_projects[project_key]['frequency'] += 0.5 #1 data = 0.5 day
+    else: # Overview of individual team member's works
         with open(os.path.join(timesheet_dir, selected_file + '.json'), 'r') as file:
             timesheet_data = json.load(file)
             for entry in timesheet_data:
                 if entry['Year'] == selected_year and entry['Month'] == selected_month:
                     timesheet_submitted.add(selected_file + '.json')
                     if entry.get('Location') == 'Onsite':
-                        onsite_count += 0.5
+                        onsite_count += 0.5 #1 data = 0.5 day
                     elif entry.get('Location') == 'Office':
-                        office_count += 0.5
+                        office_count += 0.5 #1 data = 0.5 day
                     if 'off' in entry:
                         if entry['off'] in off:
-                            off[entry['off']] += 0.5
+                            off[entry['off']] += 0.5 #1 data = 0.5 day
                     job_type = entry.get('Job_Type')
                     if job_type == 'PS':
-                        ps_count += 0.5
+                        ps_count += 0.5 #1 data = 0.5 day
                     elif job_type == 'MA':
-                        ma_count += 0.5
+                        ma_count += 0.5 #1 data = 0.5 day
                     elif job_type == 'Internal':
-                        internal_count += 0.5
+                        internal_count += 0.5 #1 data = 0.5 day
                     elif job_type == 'Pre-Sales':
-                        presales_count += 0.5
+                        presales_count += 0.5 #1 data = 0.5 day
                     customer = entry.get('Customer')
                     if customer in customer_pairs:
                         cat = customer_pairs[customer]
                         if job_type in customer_data[cat]:
-                            customer_data[cat][job_type] += 0.5
+                            customer_data[cat][job_type] += 0.5 #1 data = 0.5 day
                     if 'Customer' in entry and 'Work_Detail' in entry and 'SO' in entry:
-                        total_working_days += 0.5
+                        total_working_days += 0.5 #1 data = 0.5 day
                         project_key = (entry['Customer'], entry['Work_Detail'], entry['SO'])
                         if project_key not in monthly_projects:
                             monthly_projects[project_key] = {
                                 'customer': entry['Customer'], 'name': entry['Work_Detail'], 'so': entry['SO'], 'frequency': 0
                             }
-                        monthly_projects[project_key]['frequency'] += 0.5
+                        monthly_projects[project_key]['frequency'] += 0.5 #1 data = 0.5 day
 
     total_entries = onsite_count + office_count
     total_job_entries = ps_count + ma_count + internal_count + presales_count
@@ -377,13 +273,98 @@ def statistics():  # Removed @require_login
         "off": off if selected_file != 'SSS_Team' else None,
         "status": "success"
     })
+    
 
-@app.route('/api/logout', methods=['POST'])
+@app.route('/api/dashboard', methods=['GET', 'POST'])
+def dashboard():
+    json_files = [f for f in os.listdir(DATABASE_FOLDER) if f.endswith('.json') and f != 'users.json']
+    selected_file = None
+    timesheet = []
+    selected_year = request.args.get('year', datetime.now().year, type=int)
+    selected_month = request.args.get('month', datetime.now().month, type=int)
+
+    if request.method == 'POST':
+        data = request.get_json()
+        selected_file = data.get('json_file')
+        selected_year = data.get('year', selected_year)
+        selected_month = data.get('month', selected_month)
+        if selected_file:
+            with open(os.path.join(DATABASE_FOLDER, selected_file), 'r') as file:
+                timesheet = json.load(file)
+    
+    filtered_timesheet = [t for t in timesheet if t.get('Year') == selected_year and t.get('Month') == selected_month]
+    return jsonify({
+        "json_files": json_files,
+        "timesheet": filtered_timesheet,
+        "selected_file": selected_file,
+        "selected_year": selected_year,
+        "selected_month": selected_month
+    })
+
+#unuse
+"""
+@app.route('/api/preview', methods=['POST'])
 @require_login
-def logout():
-    session.pop('user_id', None)
-    return jsonify({"message": "Logged out successfully.", "status": "success"}), 200
+def preview():
+    file = request.files.get('file')
+    if file:
+        df = pd.read_excel(file)
+        df.fillna('', inplace=True)
+        return jsonify({"data": df.to_dict(orient='records')})
+    return jsonify({"message": "No file provided."}), 400
 
+@app.route('/api/settings', methods=['GET'])
+@require_login
+def settings():
+    employees = load_employees()
+    customer_types = load_customers()
+    return jsonify({
+        "current_customer": "Current Customer Name",
+        "people_list": employees,
+        "customer_types": customer_types
+    })
+
+@app.route('/api/add_customer', methods=['POST'])
+@require_login
+def add_customer():
+    data = request.get_json()
+    customer_name = data.get('new_customer_name')
+    customer_type = data.get('new_customer_type')
+    customers = load_customers()
+    
+    if customer_name in customers:
+        return jsonify({"error": "Customer already exists!", "status": "failure"}), 400
+    
+    customers[customer_name] = customer_type
+    save_customers(customers)
+    return jsonify({"message": "Customer added successfully!", "status": "success"}), 200
+
+    
+@app.route('/api/add_person', methods=['POST'])
+@require_login
+def add_person():
+    data = request.get_json()
+    name = data.get('new_person_name')
+    staff_number = data.get('new_person_staff_number')
+    employees = load_employees()
+    
+    if any(e['Name'] == name and e['Staff Number'] == staff_number for e in employees):
+        return jsonify({"error": "Person already exists!", "status": "failure"}), 400
+    
+    employees.append({"Name": name, "Staff Number": staff_number})
+    save_employees(employees)
+    return jsonify({"message": "Person added successfully!", "status": "success"}), 200
+
+@app.route('/api/remove_person', methods=['POST'])
+@require_login
+def remove_person():
+    data = request.get_json()
+    name = data.get('remove_person')
+    employees = load_employees()
+    employees = [e for e in employees if e['Name'] != name]
+    save_employees(employees)
+    return jsonify({"message": "Person removed successfully!", "status": "success"}), 200
+"""
 # For production deployment with waitress
 if __name__ == '__main__':
     from waitress import serve
